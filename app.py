@@ -10,9 +10,9 @@ validated backtest table, and today's composite 0DTE/1DTE score.
 import streamlit as st
 import pandas as pd
 
-from data_sources import get_price_history, get_vix_family
+from data_sources import get_price_history, get_vix_family, get_putcall_ratio
 from features import build_feature_matrix
-from backtest import run_all_metrics
+from backtest import run_all_metrics, walk_forward_combined
 from scoring import fit_weights, score_today
 
 st.set_page_config(page_title="0-1 DTE Signal Dashboard", layout="wide")
@@ -28,9 +28,14 @@ ticker = col1.selectbox("Underlying", ["SPY", "QQQ"])
 horizon = col2.selectbox("Horizon", ["0DTE", "1DTE"])
 
 with st.spinner("Pulling data..."):
-    price_df = get_price_history(ticker, period="2y")
-    vix_df = get_vix_family(period="2y")
-    df = build_feature_matrix(price_df, vix_df, horizon=horizon)
+    price_df = get_price_history(ticker, period="5y")
+    vix_df = get_vix_family(period="5y")
+    try:
+        putcall_df = get_putcall_ratio()
+    except Exception as e:
+        putcall_df = None
+        st.info(f"Put/call ratio source unavailable right now ({e}); continuing without it.")
+    df = build_feature_matrix(price_df, vix_df, horizon=horizon, putcall_df=putcall_df)
 
 st.subheader("Latest metric readings")
 st.dataframe(df.tail(5))
@@ -42,6 +47,17 @@ st.caption(
     "oos_accuracy = out-of-sample directional accuracy using ONLY this metric. "
     "naive_baseline = accuracy from always guessing the majority class. "
     "A metric only earns weight below if oos_accuracy > naive_baseline."
+)
+
+st.subheader("Combined model (all metrics together, walk-forward)")
+combined = walk_forward_combined(df)
+c1, c2, c3 = st.columns(3)
+c1.metric("OOS accuracy", combined["oos_accuracy"])
+c2.metric("Naive baseline", combined["naive_baseline"])
+c3.metric("Beats baseline?", "Yes" if combined["beats_baseline"] else "No")
+st.caption(
+    "This fits all metrics jointly instead of one at a time -- catches signal "
+    "that only appears in combination. Still walk-forward (no lookahead)."
 )
 
 weights = fit_weights(backtest_results)
