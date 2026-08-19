@@ -15,6 +15,30 @@ from features import build_feature_matrix
 from backtest import run_all_metrics, walk_forward_combined
 from scoring import fit_weights, score_today
 
+# Cache wrappers: these expensive calls (network fetch + walk-forward backtest)
+# only actually re-run once per hour per ticker/horizon combo. Switching the
+# dropdowns between cached combos will feel instant after the first run of each.
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def cached_price_history(ticker, period):
+    return get_price_history(ticker, period)
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def cached_vix_family(period):
+    return get_vix_family(period)
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def cached_putcall_ratio():
+    return get_putcall_ratio()
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def cached_backtest(df, cache_key):
+    return run_all_metrics(df)
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def cached_combined(df, cache_key):
+    return walk_forward_combined(df)
+
 st.set_page_config(page_title="0-1 DTE Signal Dashboard", layout="wide")
 st.title("SPY / QQQ 0-1 DTE Composite Signal")
 st.caption(
@@ -29,14 +53,14 @@ horizon = col2.selectbox("Horizon", ["0DTE", "1DTE"])
 
 with st.spinner("Pulling data..."):
     try:
-        price_df = get_price_history(ticker, period="5y")
-        vix_df = get_vix_family(period="5y")
+        price_df = cached_price_history(ticker, "5y")
+        vix_df = cached_vix_family("5y")
     except RuntimeError as e:
         st.error(f"Data pull failed: {e}")
         st.stop()
 
     try:
-        putcall_df = get_putcall_ratio()
+        putcall_df = cached_putcall_ratio()
     except Exception as e:
         putcall_df = None
         st.info(f"Put/call ratio source unavailable right now ({e}); continuing without it.")
@@ -57,8 +81,8 @@ st.caption(f"Total usable rows after cleaning: {len(df)} (from {df.index.min().d
 
 st.subheader("Walk-forward validation (per metric)")
 try:
-    with st.spinner("Running walk-forward backtest (this can take up to a minute)..."):
-        backtest_results = run_all_metrics(df)
+    with st.spinner("Running walk-forward backtest (faster now, ~15-30s the first time per selection)..."):
+        backtest_results = cached_backtest(df, f"{ticker}_{horizon}")
     st.dataframe(backtest_results)
     st.caption(
         "oos_accuracy = out-of-sample directional accuracy using ONLY this metric. "
@@ -72,7 +96,7 @@ except Exception as e:
 st.subheader("Combined model (all metrics together, walk-forward)")
 try:
     with st.spinner("Fitting combined model..."):
-        combined = walk_forward_combined(df)
+        combined = cached_combined(df, f"{ticker}_{horizon}")
     c1, c2, c3 = st.columns(3)
     c1.metric("OOS accuracy", combined["oos_accuracy"])
     c2.metric("Naive baseline", combined["naive_baseline"])
