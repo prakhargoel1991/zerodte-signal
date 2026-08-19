@@ -79,9 +79,14 @@ def build_target(price_df: pd.DataFrame, horizon: str = "0DTE") -> pd.Series:
     return target.rename("target_up")
 
 
-def build_feature_matrix(price_df: pd.DataFrame, vix_df: pd.DataFrame, horizon: str = "0DTE") -> pd.DataFrame:
+def build_feature_matrix(price_df: pd.DataFrame, vix_df: pd.DataFrame, horizon: str = "0DTE",
+                          putcall_df: pd.DataFrame = None) -> pd.DataFrame:
     """Assemble all registered metrics + target into one aligned dataframe.
-    This is the single place that defines "what metrics are we testing"."""
+    This is the single place that defines "what metrics are we testing".
+
+    putcall_df is optional (pass None if the CBOE pull failed) so the whole
+    app doesn't break if that one external source is unavailable.
+    """
     feats = pd.concat(
         [
             vix_df["VIX"],
@@ -93,6 +98,9 @@ def build_feature_matrix(price_df: pd.DataFrame, vix_df: pd.DataFrame, horizon: 
         ],
         axis=1,
     )
+    if putcall_df is not None and not putcall_df.empty:
+        feats = feats.join(putcall_df["PutCallRatio"], how="left")
+
     target = build_target(price_df, horizon=horizon)
     df = feats.join(target, how="inner").dropna()
     return df
