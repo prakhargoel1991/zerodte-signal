@@ -46,6 +46,27 @@ def _period_cutoff(period: str) -> pd.Timestamp:
     return pd.Timestamp.now().normalize() - pd.Timedelta(days=days)
 
 
+def _flatten_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Newer yfinance versions sometimes return MultiIndex columns (two
+    header levels, e.g. ('Close', 'SPY')) even for a single ticker. Any code
+    downstream that does price_df["Close"] expects one plain column of
+    numbers; with MultiIndex columns it silently gets a nested DataFrame
+    instead, which doesn't error immediately but breaks unpredictably later
+    (that's what caused the earlier "'str' object is not callable" error --
+    it wasn't really about a string at all). Flatten to plain column names
+    right at the source so nothing downstream has to think about this.
+    """
+    if isinstance(df.columns, pd.MultiIndex):
+        field_names = {"Open", "High", "Low", "Close", "Adj Close", "Volume"}
+        level0 = set(df.columns.get_level_values(0))
+        df = df.copy()
+        if field_names & level0:
+            df.columns = df.columns.get_level_values(0)
+        else:
+            df.columns = df.columns.get_level_values(-1)
+    return df
+
+
 def _stooq_daily(symbol: str) -> pd.DataFrame:
     """Pull daily OHLC history from Stooq. No API key, no cookies/auth --
     this is why it's immune to Yahoo's rate limiter. Raises if Stooq has no
@@ -83,7 +104,7 @@ def _fetch_history_yfinance(ticker: str, period: str, interval: str = "1d") -> p
             f"Stooq's format may have changed too -- worth reporting back."
         )
     df.index = pd.to_datetime(df.index).tz_localize(None)
-    return df
+    return _flatten_columns(df)
 
 
 def get_price_history(ticker: str, period: str = "2y", interval: str = "1d") -> pd.DataFrame:
@@ -92,7 +113,7 @@ def get_price_history(ticker: str, period: str = "2y", interval: str = "1d") -> 
         df = _stooq_daily(f"{ticker.lower()}.us")
         df = df[df.index >= _period_cutoff(period)]
         if not df.empty:
-            return df
+            return _flatten_columns(df)
     except Exception:
         pass  # fall through to yfinance
     return _fetch_history_yfinance(ticker, period, interval)
