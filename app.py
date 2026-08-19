@@ -53,45 +53,60 @@ if df.empty:
 
 st.subheader("Latest metric readings")
 st.dataframe(df.tail(5))
+st.caption(f"Total usable rows after cleaning: {len(df)} (from {df.index.min().date()} to {df.index.max().date()})")
 
 st.subheader("Walk-forward validation (per metric)")
-backtest_results = run_all_metrics(df)
-st.dataframe(backtest_results)
-st.caption(
-    "oos_accuracy = out-of-sample directional accuracy using ONLY this metric. "
-    "naive_baseline = accuracy from always guessing the majority class. "
-    "A metric only earns weight below if oos_accuracy > naive_baseline."
-)
+try:
+    with st.spinner("Running walk-forward backtest (this can take up to a minute)..."):
+        backtest_results = run_all_metrics(df)
+    st.dataframe(backtest_results)
+    st.caption(
+        "oos_accuracy = out-of-sample directional accuracy using ONLY this metric. "
+        "naive_baseline = accuracy from always guessing the majority class. "
+        "A metric only earns weight below if oos_accuracy > naive_baseline."
+    )
+except Exception as e:
+    st.error(f"Walk-forward backtest failed: {type(e).__name__}: {e}")
+    st.stop()
 
 st.subheader("Combined model (all metrics together, walk-forward)")
-combined = walk_forward_combined(df)
-c1, c2, c3 = st.columns(3)
-c1.metric("OOS accuracy", combined["oos_accuracy"])
-c2.metric("Naive baseline", combined["naive_baseline"])
-c3.metric("Beats baseline?", "Yes" if combined["beats_baseline"] else "No")
-st.caption(
-    "This fits all metrics jointly instead of one at a time -- catches signal "
-    "that only appears in combination. Still walk-forward (no lookahead)."
-)
-
-weights = fit_weights(backtest_results)
-st.subheader("Validated weights used in composite score")
-if weights.empty:
-    st.warning("No metric currently beats its naive baseline out-of-sample. "
-               "The composite score below will say 'no edge detected' -- this "
-               "is the honest result, not a bug.")
-else:
-    st.dataframe(weights)
-
-st.subheader(f"Today's composite score ({ticker}, {horizon})")
-result = score_today(df, weights)
-if result["composite_score"] is None:
-    st.error(result["detail"])
-else:
+try:
+    with st.spinner("Fitting combined model..."):
+        combined = walk_forward_combined(df)
     c1, c2, c3 = st.columns(3)
-    c1.metric("Direction", result["direction"].upper())
-    c2.metric("Composite up-probability", result["composite_score"])
-    c3.metric("Confidence (0-1)", result["confidence"])
-    st.write("Per-metric contribution:")
-    st.dataframe(pd.DataFrame(result["contributions"]))
-    st.caption(f"As of {result['as_of']}")
+    c1.metric("OOS accuracy", combined["oos_accuracy"])
+    c2.metric("Naive baseline", combined["naive_baseline"])
+    c3.metric("Beats baseline?", "Yes" if combined["beats_baseline"] else "No")
+    st.caption(
+        "This fits all metrics jointly instead of one at a time -- catches signal "
+        "that only appears in combination. Still walk-forward (no lookahead)."
+    )
+except Exception as e:
+    st.error(f"Combined model failed: {type(e).__name__}: {e}")
+    st.stop()
+
+try:
+    weights = fit_weights(backtest_results)
+    st.subheader("Validated weights used in composite score")
+    if weights.empty:
+        st.warning("No metric currently beats its naive baseline out-of-sample. "
+                   "The composite score below will say 'no edge detected' -- this "
+                   "is the honest result, not a bug.")
+    else:
+        st.dataframe(weights)
+
+    st.subheader(f"Today's composite score ({ticker}, {horizon})")
+    result = score_today(df, weights)
+    if result["composite_score"] is None:
+        st.error(result["detail"])
+    else:
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Direction", result["direction"].upper())
+        c2.metric("Composite up-probability", result["composite_score"])
+        c3.metric("Confidence (0-1)", result["confidence"])
+        st.write("Per-metric contribution:")
+        st.dataframe(pd.DataFrame(result["contributions"]))
+        st.caption(f"As of {result['as_of']}")
+except Exception as e:
+    st.error(f"Scoring step failed: {type(e).__name__}: {e}")
+    st.stop()
