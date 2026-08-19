@@ -23,11 +23,32 @@ CBOE_PUTCALL_URL = "https://cdn.cboe.com/api/global/us_indices/daily_prices/tota
 # update this constant -- nothing else needs to change.
 
 
-def get_price_history(ticker: str, period: str = "2y", interval: str = "1d") -> pd.DataFrame:
-    """OHLCV history for SPY/QQQ (or any ticker)."""
+def _fetch_history_with_fallback(ticker: str, period: str, interval: str = "1d") -> pd.DataFrame:
+    """Try yfinance's Ticker.history() first; if it comes back empty (a
+    known, silent failure mode when requests come from shared cloud IPs like
+    Streamlit Community Cloud), retry with yf.download(), which hits a
+    different endpoint and sometimes succeeds when the first one is blocked.
+    Raises a clear error only if BOTH attempts fail, instead of silently
+    returning nothing.
+    """
     df = yf.Ticker(ticker).history(period=period, interval=interval)
+    if df is None or df.empty:
+        df = yf.download(ticker, period=period, interval=interval, progress=False)
+    if df is None or df.empty:
+        raise RuntimeError(
+            f"Yahoo Finance returned no data for '{ticker}' after two attempts. "
+            f"This is usually Yahoo temporarily blocking/rate-limiting requests "
+            f"from shared cloud servers (a known issue with free hosting), not "
+            f"a problem with your files. Try refreshing in a few minutes, or "
+            f"reboot the app from the Streamlit dashboard (Manage app -> Reboot)."
+        )
     df.index = pd.to_datetime(df.index).tz_localize(None)
     return df
+
+
+def get_price_history(ticker: str, period: str = "2y", interval: str = "1d") -> pd.DataFrame:
+    """OHLCV history for SPY/QQQ (or any ticker)."""
+    return _fetch_history_with_fallback(ticker, period, interval)
 
 
 def get_vix_family(period: str = "2y") -> pd.DataFrame:
@@ -36,10 +57,9 @@ def get_vix_family(period: str = "2y") -> pd.DataFrame:
     Ratio < 1 = backwardation (near-term fear elevated, common pre-event)
     Ratio > 1 = contango (calm regime)
     """
-    vix = yf.Ticker("^VIX").history(period=period)["Close"].rename("VIX")
-    vix9d = yf.Ticker("^VIX9D").history(period=period)["Close"].rename("VIX9D")
+    vix = _fetch_history_with_fallback("^VIX", period)["Close"].rename("VIX")
+    vix9d = _fetch_history_with_fallback("^VIX9D", period)["Close"].rename("VIX9D")
     df = pd.concat([vix, vix9d], axis=1)
-    df.index = pd.to_datetime(df.index).tz_localize(None)
     df["VIX9D_VIX_ratio"] = df["VIX9D"] / df["VIX"]
     return df.dropna()
 
