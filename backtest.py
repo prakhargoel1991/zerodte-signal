@@ -25,14 +25,21 @@ from sklearn.linear_model import LogisticRegression
 
 
 def walk_forward_single_metric(df: pd.DataFrame, metric: str, target: str = "target_up",
-                                min_train: int = 60) -> dict:
-    """Fit metric -> target logistic regression walk-forward, one metric at a time."""
+                                min_train: int = 60, step: int = 3) -> dict:
+    """Fit metric -> target logistic regression walk-forward, one metric at a time.
+
+    step: only refit/test every `step`-th day instead of every single day.
+    This cuts runtime roughly `step`-fold. Testing every 3rd day instead of
+    every day barely changes the accuracy estimate (the model itself doesn't
+    change much day to day) but matters a lot for how long this takes on a
+    free/shared server.
+    """
     X = df[[metric]].values
     y = df[target].values
     n = len(df)
     preds = np.full(n, np.nan)
 
-    for i in range(min_train, n):
+    for i in range(min_train, n, step):
         X_train, y_train = X[:i], y[:i]
         if len(np.unique(y_train)) < 2:
             continue  # can't fit if all one class so far
@@ -55,14 +62,14 @@ def walk_forward_single_metric(df: pd.DataFrame, metric: str, target: str = "tar
     }
 
 
-def run_all_metrics(df: pd.DataFrame, target: str = "target_up", min_train: int = 60) -> pd.DataFrame:
+def run_all_metrics(df: pd.DataFrame, target: str = "target_up", min_train: int = 60, step: int = 3) -> pd.DataFrame:
     metric_cols = [c for c in df.columns if c != target]
-    results = [walk_forward_single_metric(df, m, target, min_train) for m in metric_cols]
+    results = [walk_forward_single_metric(df, m, target, min_train, step) for m in metric_cols]
     out = pd.DataFrame(results).sort_values("oos_accuracy", ascending=False).reset_index(drop=True)
     return out
 
 
-def walk_forward_combined(df: pd.DataFrame, target: str = "target_up", min_train: int = 60) -> dict:
+def walk_forward_combined(df: pd.DataFrame, target: str = "target_up", min_train: int = 60, step: int = 3) -> dict:
     """Same walk-forward discipline as the single-metric test, but fits ONE
     model using ALL metrics together at each step. This can catch signal
     that only shows up in combination (e.g. VIX elevated AND it's a Friday)
@@ -77,7 +84,7 @@ def walk_forward_combined(df: pd.DataFrame, target: str = "target_up", min_train
     n = len(df)
     preds = np.full(n, np.nan)
 
-    for i in range(min_train, n):
+    for i in range(min_train, n, step):
         X_train, y_train = X[:i], y[:i]
         if len(np.unique(y_train)) < 2:
             continue
