@@ -60,3 +60,40 @@ def run_all_metrics(df: pd.DataFrame, target: str = "target_up", min_train: int 
     results = [walk_forward_single_metric(df, m, target, min_train) for m in metric_cols]
     out = pd.DataFrame(results).sort_values("oos_accuracy", ascending=False).reset_index(drop=True)
     return out
+
+
+def walk_forward_combined(df: pd.DataFrame, target: str = "target_up", min_train: int = 60) -> dict:
+    """Same walk-forward discipline as the single-metric test, but fits ONE
+    model using ALL metrics together at each step. This can catch signal
+    that only shows up in combination (e.g. VIX elevated AND it's a Friday)
+    even when no individual metric beats baseline alone.
+
+    Still walk-forward: only data strictly before day i is used to predict
+    day i, so this isn't just in-sample curve-fitting with more knobs.
+    """
+    metric_cols = [c for c in df.columns if c != target]
+    X = df[metric_cols].values
+    y = df[target].values
+    n = len(df)
+    preds = np.full(n, np.nan)
+
+    for i in range(min_train, n):
+        X_train, y_train = X[:i], y[:i]
+        if len(np.unique(y_train)) < 2:
+            continue
+        model = LogisticRegression(max_iter=1000)
+        model.fit(X_train, y_train)
+        preds[i] = model.predict(X[i].reshape(1, -1))[0]
+
+    valid = ~np.isnan(preds)
+    oos_accuracy = (preds[valid] == y[valid]).mean() if valid.sum() > 0 else np.nan
+    baseline = max(y.mean(), 1 - y.mean())
+
+    return {
+        "model": "combined (all metrics)",
+        "metrics_used": metric_cols,
+        "oos_accuracy": round(oos_accuracy, 3) if not np.isnan(oos_accuracy) else np.nan,
+        "naive_baseline": round(baseline, 3),
+        "beats_baseline": bool(oos_accuracy > baseline) if not np.isnan(oos_accuracy) else False,
+        "n_test_days": int(valid.sum()),
+    }
