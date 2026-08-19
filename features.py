@@ -16,7 +16,15 @@ import pandas as pd
 
 def realized_vol(price_df: pd.DataFrame, window: int = 10) -> pd.Series:
     """Annualized realized vol of close-to-close log returns."""
-    ret = np.log(price_df["Close"] / price_df["Close"].shift(1))
+    close = price_df["Close"]
+    if isinstance(close, pd.DataFrame):
+        raise TypeError(
+            "price_df['Close'] returned a DataFrame instead of a single column "
+            "-- price_df has duplicate/nested column labels. This should have "
+            "been flattened in data_sources.py; if you see this, that flattening "
+            "missed a case."
+        )
+    ret = np.log(close / close.shift(1))
     return (ret.rolling(window).std() * np.sqrt(252) * 100).rename(f"RV_{window}d")
 
 
