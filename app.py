@@ -60,11 +60,14 @@ if st.button("🔄 Retrain now (~30-60s)"):
             putcall_df = get_putcall_ratio()
         except Exception:
             putcall_df = None
-        entry = train_one(ticker, horizon, putcall_df)
-        store[key] = entry
-        with open(MODEL_STORE_PATH, "w") as f:
-            json.dump(store, f, indent=2)
-    st.success("Retrained. Results below are now up to date.")
+        try:
+            entry = train_one(ticker, horizon, putcall_df)
+            store[key] = entry
+            with open(MODEL_STORE_PATH, "w") as f:
+                json.dump(store, f, indent=2)
+            st.success("Retrained. Results below are now up to date.")
+        except Exception as e:
+            st.error(f"Retraining failed: {type(e).__name__}: {e}")
 
 if entry is None:
     st.stop()
@@ -106,8 +109,8 @@ with st.spinner("Pulling today's values..."):
         except Exception:
             putcall_df = None
         latest = build_current_features(price_df, vix_df, putcall_df)
-    except RuntimeError as e:
-        st.error(f"Couldn't pull today's data: {e}")
+    except Exception as e:
+        st.error(f"Couldn't pull today's data: {type(e).__name__}: {e}")
         st.stop()
 
 st.write(f"As of {latest.name.date()}:")
