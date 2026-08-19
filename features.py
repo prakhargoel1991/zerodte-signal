@@ -79,6 +79,29 @@ def build_target(price_df: pd.DataFrame, horizon: str = "0DTE") -> pd.Series:
     return target.rename("target_up")
 
 
+def build_current_features(price_df: pd.DataFrame, vix_df: pd.DataFrame, putcall_df: pd.DataFrame = None) -> pd.Series:
+    """Same metric set as build_feature_matrix, but for TODAY only -- no
+    target column (today's outcome isn't known yet), so this is safe to
+    call live without needing historical data for backtesting. Used by the
+    dashboard for the fast, no-backtest "current score" path.
+    """
+    feats = pd.concat(
+        [
+            vix_df["VIX"],
+            vix_df["VIX9D_VIX_ratio"],
+            rv_iv_spread(price_df, vix_df["VIX"]),
+            prior_day_range_pct(price_df),
+            rsi(price_df),
+            day_of_week(price_df),
+        ],
+        axis=1,
+    )
+    if putcall_df is not None and not putcall_df.empty:
+        feats = feats.join(putcall_df["PutCallRatio"], how="left")
+    feats = feats.dropna()
+    return feats.iloc[-1]
+
+
 def build_feature_matrix(price_df: pd.DataFrame, vix_df: pd.DataFrame, horizon: str = "0DTE",
                           putcall_df: pd.DataFrame = None) -> pd.DataFrame:
     """Assemble all registered metrics + target into one aligned dataframe.
