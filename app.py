@@ -12,6 +12,7 @@ retrain.
 
 import os
 import json
+import traceback
 import streamlit as st
 import pandas as pd
 
@@ -68,6 +69,7 @@ if st.button("🔄 Retrain now (~30-60s)"):
             st.success("Retrained. Results below are now up to date.")
         except Exception as e:
             st.error(f"Retraining failed: {type(e).__name__}: {e}")
+            st.code(traceback.format_exc())
 
 if entry is None:
     st.stop()
@@ -111,6 +113,7 @@ with st.spinner("Pulling today's values..."):
         latest = build_current_features(price_df, vix_df, putcall_df)
     except Exception as e:
         st.error(f"Couldn't pull today's data: {type(e).__name__}: {e}")
+        st.code(traceback.format_exc())
         st.stop()
 
 st.write(f"As of {latest.name.date()}:")
