@@ -28,14 +28,28 @@ ticker = col1.selectbox("Underlying", ["SPY", "QQQ"])
 horizon = col2.selectbox("Horizon", ["0DTE", "1DTE"])
 
 with st.spinner("Pulling data..."):
-    price_df = get_price_history(ticker, period="5y")
-    vix_df = get_vix_family(period="5y")
+    try:
+        price_df = get_price_history(ticker, period="5y")
+        vix_df = get_vix_family(period="5y")
+    except RuntimeError as e:
+        st.error(f"Data pull failed: {e}")
+        st.stop()
+
     try:
         putcall_df = get_putcall_ratio()
     except Exception as e:
         putcall_df = None
         st.info(f"Put/call ratio source unavailable right now ({e}); continuing without it.")
+
     df = build_feature_matrix(price_df, vix_df, horizon=horizon, putcall_df=putcall_df)
+
+if df.empty:
+    st.error(
+        "No rows survived after aligning price and VIX data (they may not "
+        "share any overlapping dates). Try rebooting the app from the "
+        "Streamlit 'Manage app' menu, or come back in a few minutes."
+    )
+    st.stop()
 
 st.subheader("Latest metric readings")
 st.dataframe(df.tail(5))
